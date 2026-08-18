@@ -1,28 +1,32 @@
-# Australia 408 Visa Tracker
+# 🇦🇺 Australia 408 Visa
 
-## 🎯 Target
+## 🎯 Submission Target
 
-Submit application by **2026-08-21**
+**2026-08-21 Friday**
 
 ## Current Status
 
-🟡 Preparing for submission
+🟡 Preparing application
 
-## This Week
+## Progress
 
-- [x] Main supporting documents prepared
+### 8/18 Tuesday
+- [ ] Complete forms — Round 1
+
+### 8/19 Wednesday
 - [ ] Complete remaining forms
-- [ ] Review all forms
-- [ ] Upload documents
-- [ ] Final application review
+- [ ] Review all answers
+
+### 8/20 Thursday
+- [ ] Upload supporting documents
+- [ ] Final review
+
+### 8/21 Friday
 - [ ] Submit application
-- [ ] Save submission confirmation
+- [ ] Save confirmation
+- [ ] Record submission date
 
-## Timeline
+## Daily Check-ins
 
-| Date | Progress |
-|---|---|
-| 2026-08-18 | Final forms / preparation |
-| 2026-08-19 | Review |
-| 2026-08-20 | Upload + final check |
-| 2026-08-21 | 🎯 Target submission |
+- [2026-08-18](...)
+- [2026-08-19](...)
