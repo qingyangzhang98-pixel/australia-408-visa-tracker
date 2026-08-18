@@ -1,4 +1,3 @@
-# australia-408-visa-tracker
 # Australia 408 Visa Tracker
 
 ## 🎯 Target
