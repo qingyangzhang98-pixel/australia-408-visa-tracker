@@ -1,0 +1,146 @@
+name: 🇦🇺 408 Visa Daily Reminder
+
+on:
+  schedule:
+    # 每天上午 10:30
+    - cron: "30 10 * * *"
+      timezone: "Asia/Shanghai"
+
+    # 每天晚上 20:30
+    - cron: "30 20 * * *"
+      timezone: "Asia/Shanghai"
+
+  # 允许你手动测试
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  visa-reminder:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create or update today's visa check-in
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+
+        run: |
+          DATE=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+          HOUR=$(TZ=Asia/Shanghai date +%H)
+
+          case "$DATE" in
+            "2026-08-18")
+              GOAL="📝 填写 408 表格 — Day 1"
+              TASKS="- [ ] 推进表格填写
+          - [ ] 标记不确定的问题
+          - [ ] 检查姓名 / 日期 / 护照信息
+          - [ ] 记录今天完成到哪里"
+              ;;
+            "2026-08-19")
+              GOAL="📝 完成 408 表格 — Day 2"
+              TASKS="- [ ] 填完剩余表格
+          - [ ] 检查所有答案
+          - [ ] 检查日期和个人信息
+          - [ ] 整理最后待确认的问题"
+              ;;
+            "2026-08-20")
+              GOAL="📎 上传材料 + 最终检查"
+              TASKS="- [ ] 登录申请系统
+          - [ ] 上传材料
+          - [ ] 检查文件是否完整
+          - [ ] 做递交前最终检查"
+              ;;
+            "2026-08-21")
+              GOAL="🚀 408 Visa Submission Day"
+              TASKS="- [ ] 最终检查申请
+          - [ ] 正式递交
+          - [ ] 保存递交确认
+          - [ ] 更新 README 状态"
+              ;;
+            *)
+              GOAL="🇦🇺 408 Visa Progress Check"
+              TASKS="- [ ] 检查当前申请进度
+          - [ ] 检查 ImmiAccount
+          - [ ] 检查 Email
+          - [ ] 更新 GitHub 记录"
+              ;;
+          esac
+
+          TITLE="🇦🇺 408 Visa | $DATE"
+
+          ISSUE_NUMBER=$(gh issue list \
+            --repo "$GH_REPO" \
+            --state all \
+            --limit 100 \
+            --json number,title \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" \
+            | head -n 1)
+
+          if [ -z "$ISSUE_NUMBER" ]; then
+
+            BODY="## 🎯 今日目标
+
+          **$GOAL**
+
+          ## Checklist
+
+          $TASKS
+
+          ## 📊 当前进度
+
+          **完成度：** 0%
+
+          ### 今天完成了什么？
+
+          -
+
+          ### 卡住的问题
+
+          -
+
+          ### 下一步
+
+          -
+
+          ---
+          最后更新：$DATE"
+
+            gh issue create \
+              --repo "$GH_REPO" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --assignee "$OWNER"
+
+          else
+
+            if [ "$HOUR" -ge 18 ]; then
+              gh issue comment "$ISSUE_NUMBER" \
+                --repo "$GH_REPO" \
+                --body "🌙 **晚间 408 Progress Check**
+
+          @$OWNER 今天的进度更新了吗？
+
+          请检查：
+
+          - Checklist 有没有打勾
+          - 今天完成了什么
+          - 有没有卡住的问题
+          - 明天第一步做什么
+
+          🎯 今日目标：**$GOAL**"
+            else
+              gh issue comment "$ISSUE_NUMBER" \
+                --repo "$GH_REPO" \
+                --body "☀️ **上午 408 Progress Check**
+
+          @$OWNER 今天继续推进：
+
+          **$GOAL**
+
+          完成一项就回来打一个 ✅。"
+            fi
+
+          fi
