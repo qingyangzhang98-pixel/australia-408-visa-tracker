@@ -1,192 +1,90 @@
-name: 🇦🇺 408 Visa Daily Reminder
+```yaml
+name: 🇦🇺 408 Visa ImmiAccount Reminder
 
 on:
   schedule:
-    # 每天早上 10:00（北京时间）
-    - cron: "0 10 * * *"
-      timezone: "Asia/Shanghai"
+    # 10:00 Beijing time, Monday-Friday
+    # GitHub cron uses UTC: 02:00 UTC = 10:00 Asia/Shanghai
+    - cron: "0 2 * * 1-5"
 
-    # 每天晚上 22:00（北京时间）
-    - cron: "0 22 * * *"
-      timezone: "Asia/Shanghai"
-
-  # 允许手动测试
+  # Allow manual testing
   workflow_dispatch:
 
 permissions:
   issues: write
 
 jobs:
-  visa-reminder:
+  immiaccount-reminder:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create or update today's visa check-in
+      - name: Check whether today is a reminder day
+        id: schedule_check
+        shell: bash
+        run: |
+          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+
+          RUN_REMINDER=$(python3 - <<'PY'
+          from datetime import date, timedelta
+
+          # First scheduled post-lodgement reminder
+          anchor = date(2026, 8, 27)
+          today = date.today()
+
+          # GitHub runner uses UTC, but the cron fires at 02:00 UTC,
+          # which is already the same calendar day in China.
+          if today < anchor or today.weekday() >= 5:
+              print("false")
+              raise SystemExit
+
+          # Count business days from anchor to today.
+          d = anchor
+          business_index = 0
+
+          while d < today:
+              d += timedelta(days=1)
+              if d.weekday() < 5:
+                  business_index += 1
+
+          # Reminder every other business day:
+          # Thu -> Mon -> Wed -> Fri -> Tue -> ...
+          print("true" if business_index % 2 == 0 else "false")
+          PY
+          )
+
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "run_reminder=$RUN_REMINDER" >> "$GITHUB_OUTPUT"
+
+          echo "Today: $TODAY"
+          echo "Run reminder: $RUN_REMINDER"
+
+      - name: Add ImmiAccount reminder to monitoring issue
+        if: steps.schedule_check.outputs.run_reminder == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          OWNER: ${{ github.repository_owner }}
-
+        shell: bash
         run: |
-          DATE=$(TZ=Asia/Shanghai date +%Y-%m-%d)
-          HOUR=$(TZ=Asia/Shanghai date +%H)
+          DATE="${{ steps.schedule_check.outputs.today }}"
 
-          case "$DATE" in
-
-            "2026-08-19")
-              GOAL="🧾 Form 80 + Research Plan 冲刺"
-              TASKS="- [ ] 完成 Form 80 初稿
-          - [ ] 修改 Research Plan / RP 至接近最终版
-          - [ ] 下载近期个人银行流水
-          - [ ] 核对 Monash / CSC / RP 的起止日期
-          - [ ] 核对 24 个月研究期限
-          - [ ] 核对 Supervisor 和 research topic"
-              ;;
-
-            "2026-08-20")
-              GOAL="✍️ RP 定稿 + Cover Letter + ImmiAccount"
-              TASKS="- [ ] Research Plan 定稿
-          - [ ] Cover Letter 起草
-          - [ ] Cover Letter 定稿
-          - [ ] 检查 Form 80 / 54 / 1221 一致性
-          - [ ] 开始或继续填写 ImmiAccount
-          - [ ] 整理和重命名上传文件"
-              ;;
-
-            "2026-08-21")
-              GOAL="🚀 408 Visa Target Submission Day"
-              TASKS="- [ ] 完成 ImmiAccount 全部问题
-          - [ ] 上传核心 supporting documents
-          - [ ] 核对姓名 / 日期 / 研究期限
-          - [ ] 核对 CSC funding 与 24 个月期限
-          - [ ] 最终 review
-          - [ ] 条件满足则正式递交
-          - [ ] 保存 submission confirmation"
-              ;;
-
-            "2026-08-22")
-              GOAL="🛠️ Buffer Day 1 — 只处理真实遗漏"
-              TASKS="- [ ] 检查是否仍有必要补充的核心材料
-          - [ ] 修正任何日期或信息不一致
-          - [ ] 检查 ImmiAccount attachment 状态
-          - [ ] 如果已准备充分则立即递交"
-              ;;
-
-            "2026-08-23")
-              GOAL="🔍 Buffer Day 2 — Final Consistency Check"
-              TASKS="- [ ] Passport / Monash / CSC 姓名一致
-          - [ ] Research start / end date 一致
-          - [ ] Supervisor 信息一致
-          - [ ] RP 与 Cover Letter 逻辑一致
-          - [ ] Travel / Address / Education / Activity history 一致
-          - [ ] 如无重大问题，不再继续增加非必要材料"
-              ;;
-
-            "2026-08-24")
-              GOAL="🏁 Final Buffer — 完成递交"
-              TASKS="- [ ] 解决最后遗留问题
-          - [ ] 上传最后必要材料
-          - [ ] 最终检查
-          - [ ] 正式递交
-          - [ ] 保存确认与申请记录"
-              ;;
-
-            *)
-              GOAL="🇦🇺 408 Visa Progress Check"
-              TASKS="- [ ] 检查当前申请进度
-          - [ ] 检查 ImmiAccount
-          - [ ] 检查 Email
-          - [ ] 检查是否有补料通知
-          - [ ] 更新 GitHub 记录"
-              ;;
-
-          esac
-
-          TITLE="🇦🇺 408 Visa | $DATE"
-
-          ISSUE_NUMBER=$(gh issue list \
+          gh issue comment 8 \
             --repo "$GH_REPO" \
-            --state all \
-            --limit 100 \
-            --json number,title \
-            --jq ".[] | select(.title == \"$TITLE\") | .number" \
-            | head -n 1)
+            --body "🔔 **408 Visa — ImmiAccount Check | $DATE**
 
-          if [ -z "$ISSUE_NUMBER" ]; then
+          Please log in to ImmiAccount and check:
 
-            BODY="## 🎯 今日目标
+          - Application status
+          - New Messages
+          - Request for Information / further documents
+          - Newly requested attachment categories
+          - Health or character requests
+          - Any response deadline
 
-          **$GOAL**
+          If nothing has changed, no action is required.
 
-          ## Checklist
+          This is a post-lodgement monitoring reminder only."
 
-          $TASKS
-
-          ## 📊 当前进度
-
-          **完成度：** 0%
-
-          ### 今天完成了什么？
-
-          -
-
-          ### 卡住的问题
-
-          -
-
-          ### 下一步
-
-          -
-
-          ---
-          最后更新：$DATE"
-
-            gh issue create \
-              --repo "$GH_REPO" \
-              --title "$TITLE" \
-              --body "$BODY" \
-              --assignee "$OWNER"
-
-          else
-
-            if [ "$HOUR" -ge 18 ]; then
-
-              gh issue comment "$ISSUE_NUMBER" \
-                --repo "$GH_REPO" \
-                --body "🌙 **晚间 408 Progress Check**
-
-          @$OWNER 今天的进度更新了吗？
-
-          请检查：
-
-          - Checklist 有没有打勾
-          - 今天实际完成了什么
-          - 有没有卡住的问题
-          - 是否有信息 / 日期不一致
-          - 明天第一步做什么
-
-          🎯 今日目标：**$GOAL**
-
-          ⏰ 这是每天 22:00 的晚间复盘提醒。"
-
-            else
-
-              gh issue comment "$ISSUE_NUMBER" \
-                --repo "$GH_REPO" \
-                --body "☀️ **上午 408 Progress Check**
-
-          @$OWNER 今天继续推进：
-
-          **$GOAL**
-
-          今日 Checklist：
-
-          $TASKS
-
-          完成一项就回来打一个 ✅。
-
-          ⏰ 这是每天 10:00 的上午提醒。"
-
-            fi
-
-          fi
+      - name: Skip reminder
+        if: steps.schedule_check.outputs.run_reminder != 'true'
+        run: |
+          echo "Not a scheduled reminder day. No GitHub note created."
