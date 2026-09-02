@@ -2,63 +2,167 @@ name: 🇦🇺 408 Visa ImmiAccount Reminder
 
 on:
   schedule:
-    # 10:00 Beijing time, Monday-Friday
-    # GitHub cron uses UTC: 02:00 UTC = 10:00 Asia/Shanghai
+    # Run at 10:00 Beijing time, Monday-Friday.
+    # GitHub Actions cron uses UTC.
+    # 02:00 UTC = 10:00 Asia/Shanghai.
+    #
+    # The workflow runs every business day,
+    # but only posts a reminder every OTHER business day.
     - cron: "0 2 * * 1-5"
 
-  # Allow manual testing
+  # Allow manual testing.
   workflow_dispatch:
 
 permissions:
   issues: write
+
+concurrency:
+  group: 408-visa-immiaccount-reminder
+  cancel-in-progress: false
 
 jobs:
   immiaccount-reminder:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check whether today is a reminder day
-        id: schedule_check
+      # ------------------------------------------------------------
+      # 1. Check whether the monitoring issue is still open.
+      #
+      # Close Issue #8 once the 408 visa is granted.
+      # Once closed, no further reminder comments will be created.
+      # ------------------------------------------------------------
+      - name: Check whether visa monitoring is still active
+        id: issue_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
-          TODAY=$(TZ=Asia/Shanghai date +%Y-%m-%d)
+          ISSUE_STATE=$(gh issue view 8 \
+            --repo "$GH_REPO" \
+            --json state \
+            --jq '.state')
 
-          RUN_REMINDER=$(python3 - <<'PY'
-          from datetime import date, timedelta
+          echo "issue_state=$ISSUE_STATE" >> "$GITHUB_OUTPUT"
+          echo "Monitoring issue state: $ISSUE_STATE"
 
-          # First scheduled post-lodgement reminder
+      # ------------------------------------------------------------
+      # 2. Work out whether today is an every-other-business-day
+      #    reminder day.
+      #
+      # First reminder:
+      # 2026-08-27
+      #
+      # Expected sequence:
+      # 2026-08-27 Thu
+      # 2026-08-31 Mon
+      # 2026-09-02 Wed
+      # 2026-09-04 Fri
+      # 2026-09-08 Tue
+      # 2026-09-10 Thu
+      # ...
+      # ------------------------------------------------------------
+      - name: Check whether today is a reminder day
+        id: schedule_check
+        if: steps.issue_check.outputs.issue_state == 'OPEN'
+        shell: bash
+        run: |
+          RESULT=$(python3 - <<'PY'
+          from datetime import date, timedelta, datetime
+          from zoneinfo import ZoneInfo
+
           anchor = date(2026, 8, 27)
-          today = date.today()
 
-          # GitHub runner uses UTC, but the cron fires at 02:00 UTC,
-          # which is already the same calendar day in China.
-          if today < anchor or today.weekday() >= 5:
-              print("false")
+          # Always calculate using Beijing local date.
+          today = datetime.now(
+              ZoneInfo("Asia/Shanghai")
+          ).date()
+
+          if today < anchor:
+              print(f"{today}|false")
               raise SystemExit
 
-          # Count business days from anchor to today.
-          d = anchor
+          # Saturday / Sunday are never reminder days.
+          if today.weekday() >= 5:
+              print(f"{today}|false")
+              raise SystemExit
+
+          # Count business days AFTER the anchor up to today.
+          #
+          # anchor itself = business index 0
+          # next business day = index 1
+          # following business day = index 2
+          # etc.
           business_index = 0
+          d = anchor
 
           while d < today:
               d += timedelta(days=1)
+
               if d.weekday() < 5:
                   business_index += 1
 
-          # Reminder every other business day:
-          # Thu -> Mon -> Wed -> Fri -> Tue -> ...
-          print("true" if business_index % 2 == 0 else "false")
+          run_reminder = (business_index % 2 == 0)
+
+          print(
+              f"{today}|"
+              f"{'true' if run_reminder else 'false'}"
+          )
           PY
           )
+
+          TODAY="${RESULT%%|*}"
+          RUN_REMINDER="${RESULT##*|}"
 
           echo "today=$TODAY" >> "$GITHUB_OUTPUT"
           echo "run_reminder=$RUN_REMINDER" >> "$GITHUB_OUTPUT"
 
-          echo "Today: $TODAY"
+          echo "Beijing date: $TODAY"
           echo "Run reminder: $RUN_REMINDER"
 
+      # ------------------------------------------------------------
+      # 3. Prevent duplicate reminder comments.
+      #
+      # This matters if:
+      # - workflow_dispatch is used manually;
+      # - the workflow is re-run;
+      # - GitHub retries a run.
+      # ------------------------------------------------------------
+      - name: Check for existing reminder today
+        id: duplicate_check
+        if: |
+          steps.issue_check.outputs.issue_state == 'OPEN' &&
+          steps.schedule_check.outputs.run_reminder == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          DATE="${{ steps.schedule_check.outputs.today }}"
+          MARKER="408-IMMIACCOUNT-REMINDER-$DATE"
+
+          EXISTING=$(gh api \
+            "repos/$GH_REPO/issues/8/comments" \
+            --paginate \
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" \
+            | head -n 1)
+
+          if [ -n "$EXISTING" ]; then
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+            echo "Reminder already exists for $DATE."
+          else
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+            echo "No existing reminder for $DATE."
+          fi
+
+      # ------------------------------------------------------------
+      # 4. Post the reminder.
+      # ------------------------------------------------------------
       - name: Add ImmiAccount reminder to monitoring issue
-        if: steps.schedule_check.outputs.run_reminder == 'true'
+        if: |
+          steps.issue_check.outputs.issue_state == 'OPEN' &&
+          steps.schedule_check.outputs.run_reminder == 'true' &&
+          steps.duplicate_check.outputs.duplicate != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -68,22 +172,62 @@ jobs:
 
           gh issue comment 8 \
             --repo "$GH_REPO" \
-            --body "🔔 **408 Visa — ImmiAccount Check | $DATE**
+            --body "<!-- 408-IMMIACCOUNT-REMINDER-$DATE -->
+
+          🔔 **408 Visa — ImmiAccount Check | $DATE**
 
           Please log in to ImmiAccount and check:
 
           - Application status
           - New Messages
-          - Request for Information / further documents
+          - Request for Information / further document request
           - Newly requested attachment categories
-          - Health or character requests
+          - Health requirements
+          - Character requirements
           - Any response deadline
+          - Whether newly uploaded documents show as **Received**
 
-          If nothing has changed, no action is required.
+          **Current follow-up item:**
 
-          This is a post-lodgement monitoring reminder only."
+          - UK ACRO Police Certificate pending
+          - Once issued, upload it under:
+            **Character, Evidence of → Overseas Penal Clearance Certificate**
 
+          If nothing has changed:
+
+          > No action required. Continue monitoring.
+
+          Do not upload unnecessary documents simply because the application is still processing.
+
+          ---
+          *Close Issue #8 once the 408 visa is granted to stop these reminders.*"
+
+      # ------------------------------------------------------------
+      # 5. Log why nothing was posted.
+      # ------------------------------------------------------------
       - name: Skip reminder
-        if: steps.schedule_check.outputs.run_reminder != 'true'
+        if: |
+          steps.issue_check.outputs.issue_state == 'OPEN' &&
+          steps.schedule_check.outputs.run_reminder != 'true'
+        shell: bash
         run: |
-          echo "Not a scheduled reminder day. No GitHub note created."
+          echo "Today is not an every-other-business-day reminder day."
+          echo "No GitHub reminder comment created."
+
+      - name: Skip duplicate reminder
+        if: |
+          steps.issue_check.outputs.issue_state == 'OPEN' &&
+          steps.schedule_check.outputs.run_reminder == 'true' &&
+          steps.duplicate_check.outputs.duplicate == 'true'
+        shell: bash
+        run: |
+          echo "A reminder for today already exists."
+          echo "No duplicate comment created."
+
+      - name: Visa monitoring completed
+        if: steps.issue_check.outputs.issue_state == 'CLOSED'
+        shell: bash
+        run: |
+          echo "Issue #8 is closed."
+          echo "Visa monitoring is considered complete."
+          echo "No further reminder will be posted."
